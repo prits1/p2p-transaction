@@ -1,0 +1,28 @@
+version: "3.8"
+services:
+  app:
+    build: .
+    container_name: nextjs-app
+    ports:
+      - "3000:3000"
+    volumes:
+      - .:/app
+    environment:
+      - NODE_ENV=development
+    depends_on:
+      - mongodb
+
+  mongodb:
+    image: mongo:6.0
+    container_name: mongodb
+    restart: always
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb-data:/data/db
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: example
+
+volumes:
+  mongodb-data:
