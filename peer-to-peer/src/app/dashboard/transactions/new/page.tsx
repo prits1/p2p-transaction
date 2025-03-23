@@ -1,8 +1,10 @@
 "use client"
 
-import { useState } from "react"
+import type React from "react"
+
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
-import { AlertCircle } from "lucide-react"
+import { AlertCircle, Wallet } from "lucide-react"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
@@ -12,9 +14,11 @@ import { Label } from "@/components/ui/label"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
+import { Checkbox } from "@/components/ui/checkbox"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { DashboardShell } from "@/components/dashboard-shell"
 import { createTransaction } from "@/lib/actions/transaction-actions"
+import { getCurrentUser } from "@/lib/actions/auth-actions"
 
 export default function NewTransactionPage() {
   const router = useRouter()
@@ -22,16 +26,45 @@ export default function NewTransactionPage() {
   const [paymentMethod, setPaymentMethod] = useState("bank")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [walletBalance, setWalletBalance] = useState<number>(0)
+  const [useWallet, setUseWallet] = useState(false)
+  const [amount, setAmount] = useState<number>(0)
+
+  useEffect(() => {
+    async function loadUserData() {
+      try {
+        const userData = await getCurrentUser()
+        if (userData) {
+          setWalletBalance(userData.walletBalance)
+        }
+      } catch (err) {
+        console.error("Failed to load user data", err)
+      }
+    }
+
+    loadUserData()
+  }, [])
 
   async function handleSubmit(formData: FormData) {
     setLoading(true)
     setError(null)
 
     try {
+      // Add the useWallet flag to the form data
+      if (role === "buyer" && paymentMethod === "wallet") {
+        formData.append("useWallet", useWallet.toString())
+      }
+
       const result = await createTransaction(formData)
 
       if (result.error) {
         setError(result.error)
+        setLoading(false)
+        return
+      }
+
+      if (result.warning) {
+        setError(result.warning)
         setLoading(false)
         return
       }
@@ -41,6 +74,11 @@ export default function NewTransactionPage() {
       setError("An unexpected error occurred")
       setLoading(false)
     }
+  }
+
+  const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = Number.parseFloat(e.target.value)
+    setAmount(isNaN(value) ? 0 : value)
   }
 
   return (
@@ -109,6 +147,7 @@ export default function NewTransactionPage() {
                     placeholder="0.00"
                     className="pl-7"
                     required
+                    onChange={handleAmountChange}
                   />
                 </div>
               </div>
@@ -181,6 +220,45 @@ export default function NewTransactionPage() {
               </RadioGroup>
             </div>
 
+            {role === "buyer" && paymentMethod === "wallet" && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label>Wallet Balance</Label>
+                  <span className="text-sm font-medium">${walletBalance.toFixed(2)}</span>
+                </div>
+
+                {amount > 0 && (
+                  <div className="p-4 rounded-md bg-muted">
+                    {amount <= walletBalance ? (
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Wallet className="h-4 w-4 text-green-600" />
+                          <span className="text-sm text-green-600">Sufficient balance for this transaction</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Checkbox
+                            id="useWallet"
+                            checked={useWallet}
+                            onCheckedChange={(checked) => setUseWallet(checked === true)}
+                          />
+                          <Label htmlFor="useWallet" className="text-sm">
+                            Fund immediately from wallet
+                          </Label>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <AlertCircle className="h-4 w-4 text-destructive" />
+                        <span className="text-sm text-destructive">
+                          Insufficient balance (${walletBalance.toFixed(2)}) for this transaction (${amount.toFixed(2)})
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
             {paymentMethod === "bank" && (
               <div className="space-y-2">
                 <Label htmlFor="paymentDetails">Bank Account</Label>
@@ -237,4 +315,6 @@ export default function NewTransactionPage() {
     </DashboardShell>
   )
 }
+
+
 

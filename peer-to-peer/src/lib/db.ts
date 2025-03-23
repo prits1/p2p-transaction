@@ -1,4 +1,4 @@
-import { MongoClient, Db, ServerApiVersion } from "mongodb"
+import { MongoClient, ServerApiVersion } from "mongodb"
 
 // Check for MongoDB URI in environment variables
 if (!process.env.MONGODB_URI) {
@@ -40,18 +40,19 @@ if (!global._mongoClientPromise) {
 }
 clientPromise = global._mongoClientPromise
 
-// Helper function to get the database
-export async function getDatabase(): Promise<Db> {
-  const client = await clientPromise
-  return client.db() // Return the database instance
-}
-
 // Helper function to get a collection
 export async function getCollection(collectionName: string) {
-  const db = await getDatabase()
-  return db.collection(collectionName)
+  try {
+    const client = await clientPromise
+    const db = client.db()
+    return db.collection(collectionName)
+  } catch (error) {
+    console.error(`Failed to get collection ${collectionName}:`, error)
+    throw error
+  }
 }
 
 export default clientPromise
+
 
 

@@ -3,7 +3,7 @@
 import { ObjectId } from "mongodb"
 import { revalidatePath } from "next/cache"
 
-import clientPromise from "@/lib/db"
+import { getCollection } from "@/lib/db"
 import type { Message } from "@/lib/models"
 import { getCurrentUser } from "./auth-actions"
 import { createNotification } from "./notification-actions"
@@ -19,10 +19,8 @@ export async function getMessages(transactionId: string) {
   }
 
   try {
-    const client = await clientPromise
-    const db = client.db()
-    const transactionsCollection = db.collection("transactions")
-    const messagesCollection = db.collection("messages")
+    const transactionsCollection = await getCollection("transactions")
+    const messagesCollection = await getCollection("messages")
 
     // Verify user has access to this transaction
     const transaction = await transactionsCollection.findOne({
@@ -70,10 +68,8 @@ export async function sendMessage(transactionId: string, content: string) {
   }
 
   try {
-    const client = await clientPromise
-    const db = client.db()
-    const transactionsCollection = db.collection("transactions")
-    const messagesCollection = db.collection("messages")
+    const transactionsCollection = await getCollection("transactions")
+    const messagesCollection = await getCollection("messages")
 
     // Verify user has access to this transaction
     const transaction = await transactionsCollection.findOne({
@@ -132,4 +128,6 @@ export async function sendMessage(transactionId: string, content: string) {
     }
   }
 }
+
+
 

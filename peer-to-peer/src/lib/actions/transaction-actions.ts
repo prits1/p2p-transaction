@@ -3,7 +3,7 @@
 import { ObjectId } from "mongodb"
 import { revalidatePath } from "next/cache"
 
-import clientPromise from "@/lib/db"
+import { getCollection } from "@/lib/db"
 import type { Transaction } from "@/lib/models"
 import { getCurrentUser } from "./auth-actions"
 import { createEscrow, releaseEscrow } from "./payment-actions"
@@ -27,16 +27,15 @@ export async function createTransaction(formData: FormData) {
   const counterpartyEmail = formData.get("counterparty") as string
   const paymentMethod = formData.get("paymentMethod") as string
   const paymentDetails = formData.get("paymentDetails") as string
+  const useWallet = formData.get("useWallet") === "true"
 
   if (!title || !description || !amount || !currency || !role || !counterpartyEmail || !paymentMethod) {
     return { error: "All fields are required" }
   }
 
   try {
-    const client = await clientPromise
-    const db = client.db()
-    const usersCollection = db.collection("users")
-    const transactionsCollection = db.collection("transactions")
+    const usersCollection = await getCollection("users")
+    const transactionsCollection = await getCollection("transactions")
 
     // Find counterparty
     const counterparty = await usersCollection.findOne({ email: counterpartyEmail })
@@ -110,6 +109,18 @@ export async function createTransaction(formData: FormData) {
       userId: currentUser.userId,
     })
 
+    // If buyer is creating the transaction and wants to use wallet, fund it immediately
+    if (role === "buyer" && useWallet && paymentMethod === "wallet") {
+      const fundResult = await fundEscrowFromWallet(result.insertedId.toString())
+      if (fundResult.error) {
+        return {
+          success: true,
+          transactionId: result.insertedId.toString(),
+          warning: fundResult.error,
+        }
+      }
+    }
+
     revalidatePath("/dashboard/transactions")
     return {
       success: true,
@@ -132,9 +143,7 @@ export async function getTransactions(filter?: string) {
   }
 
   try {
-    const client = await clientPromise
-    const db = client.db()
-    const transactionsCollection = db.collection("transactions")
+    const transactionsCollection = await getCollection("transactions")
 
     // Build query based on user role and filter
     const query: any = {
@@ -180,9 +189,7 @@ export async function getTransaction(id: string) {
   }
 
   try {
-    const client = await clientPromise
-    const db = client.db()
-    const transactionsCollection = db.collection("transactions")
+    const transactionsCollection = await getCollection("transactions")
 
     const transaction = await transactionsCollection.findOne({
       _id: new ObjectId(id),
@@ -221,6 +228,95 @@ export async function getTransaction(id: string) {
   }
 }
 
+export async function fundEscrowFromWallet(transactionId: string) {
+  const currentUser = await getCurrentUser()
+
+  if (!currentUser) {
+    return { error: "You must be logged in" }
+  }
+
+  try {
+    const transactionsCollection = await getCollection("transactions")
+    const usersCollection = await getCollection("users")
+
+    // Get transaction
+    const transaction = await transactionsCollection.findOne({
+      _id: new ObjectId(transactionId),
+      "buyer.userId": new ObjectId(currentUser.userId),
+    })
+
+    if (!transaction) {
+      return { error: "Transaction not found or you are not the buyer" }
+    }
+
+    if (transaction.escrowFunded) {
+      return { error: "Escrow already funded" }
+    }
+
+    // Check if user has enough balance
+    const user = await usersCollection.findOne({ _id: new ObjectId(currentUser.userId) })
+    if (!user || user.walletBalance < transaction.amount) {
+      return { error: "Insufficient wallet balance" }
+    }
+
+    // Deduct from wallet
+    await usersCollection.updateOne(
+      { _id: new ObjectId(currentUser.userId) },
+      { $inc: { walletBalance: -transaction.amount } },
+    )
+
+    // Generate a unique escrow ID
+    const escrowId = `wallet_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
+
+    // Update transaction
+    await transactionsCollection.updateOne(
+      { _id: new ObjectId(transactionId) },
+      {
+        $set: {
+          status: "active",
+          escrowFunded: true,
+          escrowId: escrowId,
+          updatedAt: new Date(),
+        },
+        $push: {
+          // timeline: {
+            // date: new Date(),
+            // event: "Escrow funded from wallet",
+            // description: `Buyer funded the escrow from wallet balance`,
+          // },
+          value : currentUser.walletBalance
+        },
+      },
+    )
+
+    // Send notification to seller
+    await createNotification({
+      userId: transaction.seller.userId.toString(),
+      title: "Escrow Funded",
+      message: `The buyer has funded the escrow for transaction: ${transaction.title}`,
+      type: "success",
+      relatedTo: {
+        type: "transaction",
+        id: transactionId,
+      },
+    })
+
+    logger.info("Escrow funded from wallet", {
+      transactionId,
+      userId: currentUser.userId,
+    })
+
+    revalidatePath(`/dashboard/transactions/${transactionId}`)
+    return { success: true }
+  } catch (error: any) {
+    console.error("Fund escrow from wallet error:", error)
+    logger.error("Fund escrow from wallet error:", error)
+    return {
+      error: error.message || "Failed to fund escrow from wallet",
+    }
+  }
+}
+
 export async function fundEscrow(transactionId: string, paymentIntentId: string) {
   const currentUser = await getCurrentUser()
 
@@ -229,9 +325,7 @@ export async function fundEscrow(transactionId: string, paymentIntentId: string)
   }
 
   try {
-    const client = await clientPromise
-    const db = client.db()
-    const transactionsCollection = db.collection("transactions")
+    const transactionsCollection = await getCollection("transactions")
 
     // Get transaction
     const transaction = await transactionsCollection.findOne({
@@ -264,12 +358,13 @@ export async function fundEscrow(transactionId: string, paymentIntentId: string)
           escrowId: escrowResult.escrowId,
           updatedAt: new Date(),
         },
-        push: {
-          timeline: {
-            date: new Date(),
-            event: "Escrow funded",
-            description: `Buyer funded the escrow account`,
-          },
+        $push: {
+          // timeline: {
+          //   date: new Date(),
+          //   event: "Escrow funded",
+          //   description: `Buyer funded the escrow account`,
+          // },
+          value : currentUser.walletBalance
         },
       },
     )
@@ -311,9 +406,8 @@ export async function releaseEscrowFunds(transactionId: string) {
   }
 
   try {
-    const client = await clientPromise
-    const db = client.db()
-    const transactionsCollection = db.collection("transactions")
+    const transactionsCollection = await getCollection("transactions")
+    const usersCollection = await getCollection("users")
 
     // Get transaction
     const transaction = await transactionsCollection.findOne({
@@ -341,11 +435,19 @@ export async function releaseEscrowFunds(transactionId: string) {
       return { error: "Only the buyer can release funds" }
     }
 
-    // Release escrow in payment system
-    const releaseResult = await releaseEscrow(transaction.escrowId!)
+    // If it's a wallet transaction, add funds to seller's wallet
+    if (transaction.paymentMethod.type === "wallet") {
+      await usersCollection.updateOne(
+        { _id: transaction.seller.userId },
+        { $inc: { walletBalance: transaction.amount } },
+      )
+    } else {
+      // Release escrow in payment system
+      const releaseResult = await releaseEscrow(transaction.escrowId!)
 
-    if (!releaseResult.success) {
-      return { error: "Failed to release escrow" }
+      if (!releaseResult.success) {
+        return { error: "Unknown error" }
+      }
     }
 
     // Update transaction
@@ -357,12 +459,13 @@ export async function releaseEscrowFunds(transactionId: string) {
           completedAt: new Date(),
           updatedAt: new Date(),
         },
-        push: {
-          timeline: {
-            date: new Date(),
-            event: "Transaction completed",
-            description: `Buyer released funds to seller`,
-          },
+        $push: {
+          // timeline: {
+          //   date: new Date(),
+          //   event: "Transaction completed",
+          //   description: `Buyer released funds to seller`,
+          // },
+          value: currentUser.walletBalance,
         },
       },
     )
@@ -403,10 +506,8 @@ export async function createDispute(transactionId: string, reason: string) {
   }
 
   try {
-    const client = await clientPromise
-    const db = client.db()
-    const transactionsCollection = db.collection("transactions")
-    const disputesCollection = db.collection("disputes")
+    const transactionsCollection = await getCollection("transactions")
+    const disputesCollection = await getCollection("disputes")
 
     // Get transaction
     const transaction = await transactionsCollection.findOne({
@@ -442,13 +543,14 @@ export async function createDispute(transactionId: string, reason: string) {
           status: "disputed",
           updatedAt: new Date(),
         },
-        push: {
-          timeline: {
-            date: new Date(),
-            event: "Dispute raised",
-            description: `Dispute raised by ${currentUser.name}: ${reason}`,
-          },
-        },
+        $push: {
+          // timeline: {
+          //   date: new Date(),
+          //   event: "Dispute raised",
+          //   description: `Dispute raised by ${currentUser.name}: ${reason}`,
+          // },
+          value: currentUser.walletBalance,
+      },
       },
     )
 
@@ -468,18 +570,6 @@ export async function createDispute(transactionId: string, reason: string) {
       },
     })
 
-    // Also notify admin (in a real app)
-    // await createNotification({
-    //   userId: 'admin-user-id',
-    //   title: 'New Dispute',
-    //   message: `A new dispute has been raised for transaction #${transactionId.substring(0, 8)}`,
-    //   type: 'warning',
-    //   relatedTo: {
-    //     type: 'dispute',
-    //     id: disputeResult.insertedId.toString()
-    //   }
-    // })
-
     logger.info("Dispute created", {
       transactionId,
       disputeId: disputeResult.insertedId.toString(),
@@ -496,4 +586,6 @@ export async function createDispute(transactionId: string, reason: string) {
     }
   }
 }
+
+
 
