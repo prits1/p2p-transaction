@@ -26,7 +26,11 @@ export default function TransactionsPage() {
         return
       }
 
-      setTransactions(result.transactions)
+      if (result.transactions) {
+        setTransactions(result.transactions)
+      } else {
+        setTransactions([])
+      }
       setLoading(false)
     }
 
