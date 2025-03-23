@@ -24,7 +24,7 @@ export async function signUp(formData: FormData) {
   const role = formData.get("role") as string
 
   if (!email || !password || !name || !role) {
-    return { error: "All fields are required in auth actipns" }
+    return { error: "All fields are required" }
   }
 
   try {
@@ -39,14 +39,14 @@ export async function signUp(formData: FormData) {
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10)
 
-    // Create new user
+    // Create new user with $5 initial balance
     const newUser: User = {
       email,
       password: hashedPassword,
       name,
       role: role as "buyer" | "seller" | "admin",
       createdAt: new Date(),
-      walletBalance: 0,
+      walletBalance: 5.0, // Give new users $5 initial balance
       trustScore: 5,
       bankAccounts: [],
     }
@@ -67,9 +67,8 @@ export async function signUp(formData: FormData) {
     )
 
     // Set cookie
-    ;(await
-      // Set cookie
-      cookies()).set({
+    const cookieStore = await cookies()
+    cookieStore.set({
       name: COOKIE_NAME,
       value: token,
       httpOnly: true,
@@ -91,34 +90,26 @@ export async function login(formData: FormData) {
     const password = formData.get("password") as string
 
     if (!email || !password) {
-      console.error("Login error: Email and password are required")
       return { error: "Email and password are required" }
     }
 
-    console.log("Attempting to get users collection...")
     const usersCollection = await getCollection("users")
-    console.log("Got users collection successfully")
 
     // Find user by email
-    console.log(`Looking for user with email: ${email}`)
     const user = await usersCollection.findOne({ email })
 
     if (!user) {
-      console.error(`Login error: User not found with email: ${email}`)
       return { error: "Invalid email or password" }
     }
 
     // Verify password
-    console.log("Verifying password...")
     const isPasswordValid = await bcrypt.compare(password, user.password)
 
     if (!isPasswordValid) {
-      console.error("Login error: Invalid password")
       return { error: "Invalid email or password" }
     }
 
     // Create JWT token
-    console.log("Creating JWT token...")
     const token = jwt.sign(
       {
         userId: user._id.toString(),
@@ -131,16 +122,15 @@ export async function login(formData: FormData) {
     )
 
     // Set cookie
-    console.log("Setting auth token cookie...")
-    ;(await cookies()).set(COOKIE_NAME, token, {
+    const cookieStore = await cookies()
+    cookieStore.set(COOKIE_NAME, token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production", // false in development
-      sameSite: "lax", // Changed from strict for local development
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
       maxAge: 60 * 60 * 24 * 7, // 7 days
       path: "/",
     })
 
-    console.log("Login successful")
     return { success: true }
   } catch (error: any) {
     console.error("Login error:", error)
@@ -149,37 +139,14 @@ export async function login(formData: FormData) {
 }
 
 export async function signOut() {
-  (await cookies()).delete(COOKIE_NAME)
+  const cookieStore = await cookies()
+  cookieStore.delete(COOKIE_NAME)
   redirect("/login")
-}
-export async function updateUserWallet(userId: string, amount: number) {
-  try {
-    if (!userId || typeof amount !== "number") {
-      return { error: "Invalid parameters" }
-    }
-
-    const usersCollection = await getCollection("users")
-    const user = await usersCollection.findOne({ _id: new ObjectId(userId) })
-
-    if (!user) {
-      return { error: "User not found" }
-    }
-
-    const updatedBalance = (user.walletBalance || 0) + amount
-    await usersCollection.updateOne(
-      { _id: new ObjectId(userId) },
-      { $set: { walletBalance: updatedBalance } }
-    )
-
-    return { success: true, newBalance: updatedBalance }
-  } catch (error) {
-    console.error("Error updating wallet balance:", error)
-    return { error: "Failed to update wallet balance" }
-  }
 }
 
 export async function getCurrentUser() {
-  const token = (await cookies()).get(COOKIE_NAME)?.value
+  const cookieStore = await cookies()
+  const token = cookieStore.get(COOKIE_NAME)?.value
 
   if (!token) {
     console.log("No auth token found in cookies")
@@ -215,3 +182,4 @@ export async function getCurrentUser() {
     return null
   }
 }
+

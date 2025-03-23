@@ -140,11 +140,11 @@ export default function NotificationsPage() {
                       </p>
                     </div>
                     <p className="text-sm text-muted-foreground">{notification.message}</p>
-                    {getRelatedLink(notification) && (
-                      <Link href={getRelatedLink(notification)} className="text-sm text-primary hover:underline">
+                    {getRelatedLink(notification) ? (
+                      <Link href={getRelatedLink(notification) as string} className="text-sm text-primary hover:underline">
                         View details
                       </Link>
-                    )}
+                    ) : null}
                   </div>
                   <div className="flex gap-2">
                     {!notification.isRead && (
