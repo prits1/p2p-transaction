@@ -29,6 +29,14 @@ export default function NewTransactionPage() {
   const [walletBalance, setWalletBalance] = useState<number>(0)
   const [useWallet, setUseWallet] = useState(false)
   const [amount, setAmount] = useState<number>(0)
+  const [formData, setFormData] = useState({
+    title: "",
+    description: "",
+    amount: "",
+    currency: "usd",
+    counterparty: "",
+    paymentDetails: "default",
+  })
 
   useEffect(() => {
     async function loadUserData() {
@@ -45,17 +53,42 @@ export default function NewTransactionPage() {
     loadUserData()
   }, [])
 
-  async function handleSubmit(formData: FormData) {
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+    const { name, value } = e.target
+    setFormData((prev) => ({ ...prev, [name]: value }))
+
+    if (name === "amount") {
+      setAmount(Number.parseFloat(value) || 0)
+    }
+  }
+
+  const handleSelectChange = (name: string, value: string) => {
+    setFormData((prev) => ({ ...prev, [name]: value }))
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
     setLoading(true)
     setError(null)
 
     try {
+      // Create FormData object
+      const submitData = new FormData()
+      submitData.append("title", formData.title)
+      submitData.append("description", formData.description)
+      submitData.append("amount", formData.amount)
+      submitData.append("currency", formData.currency)
+      submitData.append("role", role)
+      submitData.append("counterparty", formData.counterparty)
+      submitData.append("paymentMethod", paymentMethod)
+      submitData.append("paymentDetails", formData.paymentDetails)
+
       // Add the useWallet flag to the form data
       if (role === "buyer" && paymentMethod === "wallet") {
-        formData.append("useWallet", useWallet.toString())
+        submitData.append("useWallet", useWallet.toString())
       }
 
-      const result = await createTransaction(formData)
+      const result = await createTransaction(submitData)
 
       if (result.error) {
         setError(result.error)
@@ -76,11 +109,6 @@ export default function NewTransactionPage() {
     }
   }
 
-  const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = Number.parseFloat(e.target.value)
-    setAmount(isNaN(value) ? 0 : value)
-  }
-
   return (
     <DashboardShell>
       <DashboardHeader
@@ -88,7 +116,7 @@ export default function NewTransactionPage() {
         text="Set up a new escrow transaction with a buyer or seller."
       />
       <Card>
-        <form action={handleSubmit}>
+        <form onSubmit={handleSubmit}>
           <CardHeader>
             <CardTitle>Transaction Details</CardTitle>
             <CardDescription>Provide the details for your new escrow transaction.</CardDescription>
@@ -104,7 +132,13 @@ export default function NewTransactionPage() {
 
             <div className="space-y-2">
               <Label>Your Role</Label>
-              <RadioGroup defaultValue="buyer" name="role" className="grid grid-cols-2 gap-4" onValueChange={setRole}>
+              <RadioGroup
+                defaultValue="buyer"
+                name="role"
+                className="grid grid-cols-2 gap-4"
+                value={role}
+                onValueChange={setRole}
+              >
                 <div>
                   <RadioGroupItem value="buyer" id="buyer" className="peer sr-only" />
                   <Label
@@ -130,7 +164,14 @@ export default function NewTransactionPage() {
 
             <div className="space-y-2">
               <Label htmlFor="counterparty">{role === "buyer" ? "Seller's Email" : "Buyer's Email"}</Label>
-              <Input id="counterparty" name="counterparty" placeholder="Enter email address" required />
+              <Input
+                id="counterparty"
+                name="counterparty"
+                placeholder="Enter email address"
+                required
+                value={formData.counterparty}
+                onChange={handleInputChange}
+              />
             </div>
 
             <div className="grid grid-cols-2 gap-4">
@@ -147,13 +188,19 @@ export default function NewTransactionPage() {
                     placeholder="0.00"
                     className="pl-7"
                     required
-                    onChange={handleAmountChange}
+                    value={formData.amount}
+                    onChange={handleInputChange}
                   />
                 </div>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="currency">Currency</Label>
-                <Select defaultValue="usd" name="currency">
+                <Select
+                  defaultValue="usd"
+                  name="currency"
+                  value={formData.currency}
+                  onValueChange={(value) => handleSelectChange("currency", value)}
+                >
                   <SelectTrigger id="currency">
                     <SelectValue placeholder="Select currency" />
                   </SelectTrigger>
@@ -168,7 +215,14 @@ export default function NewTransactionPage() {
 
             <div className="space-y-2">
               <Label htmlFor="title">Transaction Title</Label>
-              <Input id="title" name="title" placeholder="e.g., Purchase of laptop, Freelance design work" required />
+              <Input
+                id="title"
+                name="title"
+                placeholder="e.g., Purchase of laptop, Freelance design work"
+                required
+                value={formData.title}
+                onChange={handleInputChange}
+              />
             </div>
 
             <div className="space-y-2">
@@ -179,6 +233,8 @@ export default function NewTransactionPage() {
                 placeholder="Describe the goods or services being exchanged"
                 rows={3}
                 required
+                value={formData.description}
+                onChange={handleInputChange}
               />
             </div>
 
@@ -188,6 +244,7 @@ export default function NewTransactionPage() {
                 defaultValue="bank"
                 name="paymentMethod"
                 className="grid grid-cols-3 gap-4"
+                value={paymentMethod}
                 onValueChange={setPaymentMethod}
               >
                 <div>
@@ -262,7 +319,12 @@ export default function NewTransactionPage() {
             {paymentMethod === "bank" && (
               <div className="space-y-2">
                 <Label htmlFor="paymentDetails">Bank Account</Label>
-                <Select defaultValue="default" name="paymentDetails">
+                <Select
+                  defaultValue="default"
+                  name="paymentDetails"
+                  value={formData.paymentDetails}
+                  onValueChange={(value) => handleSelectChange("paymentDetails", value)}
+                >
                   <SelectTrigger id="paymentDetails">
                     <SelectValue placeholder="Select bank account" />
                   </SelectTrigger>
@@ -278,7 +340,12 @@ export default function NewTransactionPage() {
             {paymentMethod === "card" && (
               <div className="space-y-2">
                 <Label htmlFor="paymentDetails">Credit Card</Label>
-                <Select defaultValue="visa" name="paymentDetails">
+                <Select
+                  defaultValue="visa"
+                  name="paymentDetails"
+                  value={formData.paymentDetails}
+                  onValueChange={(value) => handleSelectChange("paymentDetails", value)}
+                >
                   <SelectTrigger id="paymentDetails">
                     <SelectValue placeholder="Select credit card" />
                   </SelectTrigger>
@@ -315,6 +382,8 @@ export default function NewTransactionPage() {
     </DashboardShell>
   )
 }
+
+
 
 
 

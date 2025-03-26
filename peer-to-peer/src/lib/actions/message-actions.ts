@@ -56,6 +56,32 @@ export async function getMessages(transactionId: string) {
   }
 }
 
+export async function getUnreadMessages() {
+  const currentUser = await getCurrentUser()
+
+  if (!currentUser) {
+    return { error: "You must be logged in" }
+  }
+
+  try {
+    const messagesCollection = await getCollection("messages")
+
+    // Count unread messages where the current user is not the sender
+    const unreadCount = await messagesCollection.countDocuments({
+      sender: { $ne: new ObjectId(currentUser.userId) },
+      isRead: false,
+    })
+
+    return {
+      success: true,
+      unreadCount,
+    }
+  } catch (error: any) {
+    logger.error("Get unread messages error:", error)
+    return { error: error.message || "Failed to fetch unread messages" }
+  }
+}
+
 export async function sendMessage(transactionId: string, content: string) {
   const currentUser = await getCurrentUser()
 
@@ -128,6 +154,32 @@ export async function sendMessage(transactionId: string, content: string) {
     }
   }
 }
+
+export async function markMessageAsRead(messageId: string) {
+  const currentUser = await getCurrentUser()
+
+  if (!currentUser) {
+    return { error: "You must be logged in" }
+  }
+
+  try {
+    const messagesCollection = await getCollection("messages")
+
+    await messagesCollection.updateOne(
+      {
+        _id: new ObjectId(messageId),
+        sender: { $ne: new ObjectId(currentUser.userId) }, // Only mark as read if not sent by current user
+      },
+      { $set: { isRead: true } },
+    )
+
+    return { success: true }
+  } catch (error: any) {
+    logger.error("Mark message as read error:", error)
+    return { error: error.message || "Failed to mark message as read" }
+  }
+}
+
 
 
 
