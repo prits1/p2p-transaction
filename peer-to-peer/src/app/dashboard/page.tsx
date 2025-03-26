@@ -7,7 +7,7 @@ import { getTransactions } from "@/lib/actions/transaction-actions"
 import { getCurrentUser } from "@/lib/actions/auth-actions"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
-import { ArrowRight, Plus } from "lucide-react"
+import { ArrowRight, Plus, Wallet, ShieldCheck, ArrowLeftRight, LockIcon } from "lucide-react"
 
 // Dashboard stats component with suspense
 async function DashboardStats() {
@@ -27,30 +27,54 @@ async function DashboardStats() {
   // Get recent transactions (up to 3)
   const recentTransactions = transactions.slice(0, 3)
 
+  // Calculate total escrow amount (for active transactions)
+  const activeEscrowTransactions = transactions.filter((t: any) => t.status === "active" && t.escrowFunded)
+  const totalEscrowAmount = activeEscrowTransactions.reduce((sum: number, t: any) => sum + t.amount, 0)
+
+  // Calculate escrow as buyer and as seller
+  const escrowAsBuyer = activeEscrowTransactions
+    .filter((t: any) => t.buyer.userId === userData.userId)
+    .reduce((sum: number, t: any) => sum + t.amount, 0)
+
+  const escrowAsSeller = activeEscrowTransactions
+    .filter((t: any) => t.seller.userId === userData.userId)
+    .reduce((sum: number, t: any) => sum + t.amount, 0)
+
   return (
     <div className="space-y-8">
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Wallet Balance</CardTitle>
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth="2"
-              className="h-4 w-4 text-muted-foreground"
-            >
-              <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
-            </svg>
+            <Wallet className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">${userData.walletBalance.toFixed(2)}</div>
             <p className="text-xs text-muted-foreground">Available for transactions</p>
           </CardContent>
         </Card>
+
+        {/* New Escrow Balance Card */}
+        <Card className="border-primary/20 bg-primary/5">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Escrow Balance</CardTitle>
+            <LockIcon className="h-4 w-4 text-primary" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">${totalEscrowAmount.toFixed(2)}</div>
+            <div className="mt-1 flex items-center justify-between text-xs">
+              <div className="flex items-center gap-1">
+                <ArrowLeftRight className="h-3 w-3" />
+                <span className="text-muted-foreground">As Buyer: ${escrowAsBuyer.toFixed(2)}</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <ShieldCheck className="h-3 w-3" />
+                <span className="text-muted-foreground">As Seller: ${escrowAsSeller.toFixed(2)}</span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Active Transactions</CardTitle>
@@ -96,28 +120,51 @@ async function DashboardStats() {
             <p className="text-xs text-muted-foreground">Successfully completed</p>
           </CardContent>
         </Card>
+      </div>
+
+      {/* Active Escrow Transactions Section */}
+      {activeEscrowTransactions.length > 0 && (
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Disputes</CardTitle>
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth="2"
-              className="h-4 w-4 text-muted-foreground"
-            >
-              <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
-            </svg>
+          <CardHeader>
+            <CardTitle>Active Escrow Transactions</CardTitle>
+            <CardDescription>Funds currently held in escrow</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{disputedTransactions}</div>
-            <p className="text-xs text-muted-foreground">Transactions in dispute</p>
+            <div className="space-y-4">
+              {activeEscrowTransactions.map((transaction: any) => (
+                <Link
+                  href={`/dashboard/transactions/${transaction._id}`}
+                  key={transaction._id}
+                  className="block transition-colors hover:bg-muted/50"
+                >
+                  <div className="flex items-center justify-between rounded-lg border p-4">
+                    <div className="flex items-center gap-4">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
+                        <LockIcon className="h-5 w-5 text-primary" />
+                      </div>
+                      <div>
+                        <p className="font-medium">{transaction.title}</p>
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <span>
+                            {transaction.buyer.userId === userData.userId ? "You" : transaction.buyer.name} →{" "}
+                            {transaction.seller.userId === userData.userId ? "You" : transaction.seller.name}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex flex-col items-end">
+                      <p className="text-lg font-semibold">${transaction.amount.toFixed(2)}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {new Date(transaction.createdAt).toLocaleDateString()}
+                      </p>
+                    </div>
+                  </div>
+                </Link>
+              ))}
+            </div>
           </CardContent>
         </Card>
-      </div>
+      )}
 
       <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
         <Card>
@@ -130,6 +177,12 @@ async function DashboardStats() {
               <div className="flex items-center p-2 hover:bg-muted rounded-md cursor-pointer">
                 <Plus className="h-4 w-4 mr-2 text-primary" />
                 <span>Create New Transaction</span>
+              </div>
+            </Link>
+            <Link href="/dashboard/wallet" className="block">
+              <div className="flex items-center p-2 hover:bg-muted rounded-md cursor-pointer">
+                <Wallet className="h-4 w-4 mr-2 text-primary" />
+                <span>Add Funds to Wallet</span>
               </div>
             </Link>
             <Link href="/dashboard/wallet" className="block">
@@ -148,23 +201,6 @@ async function DashboardStats() {
                   <path d="M2 10h20" />
                 </svg>
                 <span>Add Bank Account</span>
-              </div>
-            </Link>
-            <Link href="/dashboard/wallet" className="block">
-              <div className="flex items-center p-2 hover:bg-muted rounded-md cursor-pointer">
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth="2"
-                  className="h-4 w-4 mr-2 text-primary"
-                >
-                  <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
-                </svg>
-                <span>Deposit Funds</span>
               </div>
             </Link>
           </CardContent>
@@ -215,6 +251,8 @@ async function DashboardStats() {
                             <line x1="12" y1="9" x2="12" y2="13" />
                             <line x1="12" y1="17" x2="12.01" y2="17" />
                           </svg>
+                        ) : transaction.status === "active" && transaction.escrowFunded ? (
+                          <LockIcon className="h-4 w-4 text-primary" />
                         ) : (
                           <svg
                             xmlns="http://www.w3.org/2000/svg"
@@ -351,6 +389,8 @@ export default function DashboardPage() {
     </DashboardShell>
   )
 }
+
+
 
 
 

@@ -2,7 +2,18 @@
 
 import { useState } from "react"
 import { useRouter } from "next/navigation"
-import { CheckCircle, Clock, MessageSquare, ShieldAlert, ShieldCheck, AlertCircle, Wallet } from "lucide-react"
+import {
+  CheckCircle,
+  Clock,
+  MessageSquare,
+  ShieldAlert,
+  ShieldCheck,
+  AlertCircle,
+  Wallet,
+  ArrowLeftRight,
+  LockIcon,
+  Star,
+} from "lucide-react"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -15,6 +26,7 @@ import { releaseEscrowFunds, createDispute, fundEscrowFromWallet } from "@/lib/a
 import { sendMessage } from "@/lib/actions/message-actions"
 import { createPaymentIntent } from "@/lib/actions/payment-actions"
 import { PaymentModal } from "@/components/payment-modal"
+import { ReviewForm } from "@/components/review-form"
 import { getCurrentUser } from "@/lib/actions/auth-actions"
 
 export function TransactionClient({
@@ -38,6 +50,7 @@ export function TransactionClient({
   const [paymentIntentId, setPaymentIntentId] = useState<string | null>(null)
   const [walletBalance, setWalletBalance] = useState<number | null>(null)
   const [checkingWallet, setCheckingWallet] = useState(false)
+  const [showReviewForm, setShowReviewForm] = useState(false)
 
   async function handleReleaseEscrow() {
     setLoading(true)
@@ -176,31 +189,46 @@ export function TransactionClient({
     switch (transaction.status) {
       case "pending":
         return (
-          <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200">
+          <Badge
+            variant="outline"
+            className="bg-yellow-50 text-yellow-700 border-yellow-200 dark:bg-yellow-950/50 dark:text-yellow-400 dark:border-yellow-900"
+          >
             Pending
           </Badge>
         )
       case "active":
         return (
-          <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+          <Badge
+            variant="outline"
+            className="bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/50 dark:text-blue-400 dark:border-blue-900"
+          >
             Active
           </Badge>
         )
       case "completed":
         return (
-          <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+          <Badge
+            variant="outline"
+            className="bg-green-50 text-green-700 border-green-200 dark:bg-green-950/50 dark:text-green-400 dark:border-green-900"
+          >
             Completed
           </Badge>
         )
       case "disputed":
         return (
-          <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
+          <Badge
+            variant="outline"
+            className="bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/50 dark:text-amber-400 dark:border-amber-900"
+          >
             Disputed
           </Badge>
         )
       case "cancelled":
         return (
-          <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200">
+          <Badge
+            variant="outline"
+            className="bg-red-50 text-red-700 border-red-200 dark:bg-red-950/50 dark:text-red-400 dark:border-red-900"
+          >
             Cancelled
           </Badge>
         )
@@ -208,6 +236,11 @@ export function TransactionClient({
         return <Badge variant="outline">Unknown</Badge>
     }
   }
+
+  // Determine if the user can leave a review
+  const canLeaveReview = transaction.status === "completed" && !transaction.hasReviewed?.[userRole]
+  const counterpartyId = userRole === "buyer" ? transaction.seller.userId : transaction.buyer.userId
+  const counterpartyName = userRole === "buyer" ? transaction.seller.name : transaction.buyer.name
 
   return (
     <>
@@ -219,6 +252,104 @@ export function TransactionClient({
         </Alert>
       )}
 
+      {/* Escrow Status Card - New Component */}
+      {transaction.status !== "pending" && (
+        <Card className="mb-6 overflow-hidden">
+          <div
+            className={`h-1.5 w-full ${
+              transaction.status === "completed"
+                ? "bg-green-500"
+                : transaction.status === "disputed"
+                  ? "bg-amber-500"
+                  : "bg-blue-500"
+            }`}
+          />
+          <CardContent className="p-6">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-4">
+                <div
+                  className={`flex h-12 w-12 items-center justify-center rounded-full ${
+                    transaction.status === "completed"
+                      ? "bg-green-100 text-green-600 dark:bg-green-900/20 dark:text-green-400"
+                      : transaction.status === "disputed"
+                        ? "bg-amber-100 text-amber-600 dark:bg-amber-900/20 dark:text-amber-400"
+                        : "bg-blue-100 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400"
+                  }`}
+                >
+                  {transaction.status === "completed" ? (
+                    <CheckCircle className="h-6 w-6" />
+                  ) : transaction.status === "disputed" ? (
+                    <ShieldAlert className="h-6 w-6" />
+                  ) : (
+                    <LockIcon className="h-6 w-6" />
+                  )}
+                </div>
+                <div>
+                  <h3 className="text-lg font-medium">Escrow Status</h3>
+                  <p className="text-sm text-muted-foreground">
+                    {transaction.status === "completed"
+                      ? "Funds have been released to the seller"
+                      : transaction.status === "disputed"
+                        ? "Transaction is under dispute resolution"
+                        : "Funds are securely held in escrow"}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-col items-end">
+                <div className="flex items-center gap-2">
+                  <ArrowLeftRight className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm text-muted-foreground">
+                    {userRole === "buyer" ? "You" : transaction.buyer.name} →{" "}
+                    {userRole === "seller" ? "You" : transaction.seller.name}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-2xl font-bold">${transaction.amount.toFixed(2)}</span>
+                  {getStatusBadge()}
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Review Form */}
+      {showReviewForm && (
+        <div className="mb-6">
+          <ReviewForm
+            transactionId={transactionId}
+            revieweeId={counterpartyId}
+            revieweeName={counterpartyName}
+            onSuccess={() => {
+              setShowReviewForm(false)
+              router.refresh()
+            }}
+            onCancel={() => setShowReviewForm(false)}
+          />
+        </div>
+      )}
+
+      {/* Review CTA */}
+      {canLeaveReview && !showReviewForm && (
+        <Card className="mb-6 bg-primary/5 border-primary/20">
+          <CardContent className="p-6">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
+                  <Star className="h-5 w-5 text-primary" />
+                </div>
+                <div>
+                  <h3 className="font-medium">Leave a Review</h3>
+                  <p className="text-sm text-muted-foreground">Share your experience with {counterpartyName}</p>
+                </div>
+              </div>
+              <Button onClick={() => setShowReviewForm(true)}>Write Review</Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <div className="grid gap-6 md:grid-cols-7">
         <div className="md:col-span-4 space-y-6">
           <Card>
@@ -228,7 +359,6 @@ export function TransactionClient({
                   <CardTitle>Transaction Details</CardTitle>
                   <CardDescription>Information about this transaction</CardDescription>
                 </div>
-                {getStatusBadge()}
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -289,7 +419,7 @@ export function TransactionClient({
                     </Button>
                   ) : walletBalance >= transaction.amount ? (
                     <div className="space-y-2">
-                      <Alert className="bg-green-50 text-green-700 border-green-200">
+                      <Alert className="bg-green-50 text-green-700 border-green-200 dark:bg-green-900/20 dark:text-green-400 dark:border-green-800">
                         <Wallet className="h-4 w-4" />
                         <AlertTitle>Wallet Balance Available</AlertTitle>
                         <AlertDescription>
@@ -349,7 +479,7 @@ export function TransactionClient({
 
               {transaction.status === "completed" && (
                 <div className="w-full">
-                  <Alert className="bg-green-50 text-green-700 border-green-200">
+                  <Alert className="bg-green-50 text-green-700 border-green-200 dark:bg-green-900/20 dark:text-green-400 dark:border-green-800">
                     <ShieldCheck className="h-4 w-4" />
                     <AlertTitle>Transaction Completed</AlertTitle>
                     <AlertDescription>
@@ -361,13 +491,20 @@ export function TransactionClient({
 
               {transaction.status === "disputed" && (
                 <div className="w-full">
-                  <Alert className="bg-amber-50 text-amber-700 border-amber-200">
+                  <Alert className="bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/20 dark:text-amber-400 dark:border-amber-800">
                     <ShieldAlert className="h-4 w-4" />
                     <AlertTitle>Dispute In Progress</AlertTitle>
                     <AlertDescription>
                       This transaction is currently under review by our support team. We'll contact you soon.
                     </AlertDescription>
                   </Alert>
+                  <Button
+                    variant="outline"
+                    className="w-full mt-2"
+                    onClick={() => router.push(`/dashboard/disputes/${transaction.disputeId || ""}`)}
+                  >
+                    View Dispute Details
+                  </Button>
                 </div>
               )}
             </CardFooter>
@@ -487,4 +624,5 @@ export function TransactionClient({
     </>
   )
 }
+
 
