@@ -18,20 +18,26 @@ import {
   getWalletTransactions,
   addCreditCard,
   getCreditCards,
+  getWithdrawalRequests,
 } from "@/lib/actions/payment-actions"
 import { getCurrentUser } from "@/lib/actions/auth-actions"
 import { Progress } from "@/components/ui/progress"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { CreditCardForm } from "@/components/credit-card-form"
+import { StripePaymentForm } from "@/components/stripe-payment-form"
+import { WithdrawForm } from "@/components/withdraw-form"
 
 export default function WalletPage() {
   const [user, setUser] = useState<any>(null)
   const [bankAccounts, setBankAccounts] = useState<any[]>([])
   const [creditCards, setCreditCards] = useState<any[]>([])
   const [transactions, setTransactions] = useState<any[]>([])
+  const [withdrawals, setWithdrawals] = useState<any[]>([])
   const [showAddBankForm, setShowAddBankForm] = useState(false)
   const [showAddFundsForm, setShowAddFundsForm] = useState(false)
   const [showAddCardForm, setShowAddCardForm] = useState(false)
+  const [showWithdrawForm, setShowWithdrawForm] = useState(false)
+  const [showStripeForm, setShowStripeForm] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
@@ -42,6 +48,7 @@ export default function WalletPage() {
   useEffect(() => {
     async function loadData() {
       try {
+        setLoading(true)
         // Get user data
         const userData = await getCurrentUser()
         if (userData) {
@@ -65,9 +72,17 @@ export default function WalletPage() {
         if (transactionsResult.success) {
           setTransactions(transactionsResult.transactions)
         }
+
+        // Get withdrawal requests
+        const withdrawalsResult = await getWithdrawalRequests()
+        if (withdrawalsResult.success) {
+          setWithdrawals(withdrawalsResult.withdrawals)
+        }
       } catch (err) {
         console.error("Failed to load wallet data:", err)
         setError("Failed to load wallet data. Please try again.")
+      } finally {
+        setLoading(false)
       }
     }
 
@@ -141,6 +156,14 @@ export default function WalletPage() {
       return
     }
 
+    // If using card payment method, show Stripe form
+    if (paymentMethod === "card") {
+      setShowStripeForm(true)
+      setShowAddFundsForm(false)
+      setLoading(false)
+      return
+    }
+
     try {
       const amount = Number.parseFloat(fundAmount)
       const result = await addFundsToWallet(amount, paymentMethod, selectedPaymentSource)
@@ -171,6 +194,46 @@ export default function WalletPage() {
     }
   }
 
+  function handleStripeSuccess() {
+    setShowStripeForm(false)
+    setSuccess("Payment successful! Funds have been added to your wallet.")
+
+    // Refresh data
+    refreshData()
+  }
+
+  function handleWithdrawSuccess() {
+    setShowWithdrawForm(false)
+    setSuccess("Withdrawal initiated successfully. It will be processed within 1-3 business days.")
+
+    // Refresh data
+    refreshData()
+  }
+
+  async function refreshData() {
+    try {
+      // Refresh user data
+      const userData = await getCurrentUser()
+      if (userData) {
+        setUser(userData)
+      }
+
+      // Refresh wallet transactions
+      const transactionsResult = await getWalletTransactions()
+      if (transactionsResult.success) {
+        setTransactions(transactionsResult.transactions)
+      }
+
+      // Refresh withdrawal requests
+      const withdrawalsResult = await getWithdrawalRequests()
+      if (withdrawalsResult.success) {
+        setWithdrawals(withdrawalsResult.withdrawals)
+      }
+    } catch (err) {
+      console.error("Failed to refresh data:", err)
+    }
+  }
+
   // Format date for display
   const formatDate = (dateString: string) => {
     const date = new Date(dateString)
@@ -179,6 +242,17 @@ export default function WalletPage() {
       month: "short",
       day: "numeric",
     })
+  }
+
+  if (loading && !user) {
+    return (
+      <DashboardShell>
+        <DashboardHeader heading="Wallet & Banking" text="Loading your wallet information..." />
+        <div className="flex items-center justify-center p-8">
+          <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-primary"></div>
+        </div>
+      </DashboardShell>
+    )
   }
 
   return (
@@ -219,17 +293,49 @@ export default function WalletPage() {
                   </div>
                 </div>
                 <div className="flex flex-1 gap-2 sm:justify-end">
-                  <Button
-                    variant={showAddFundsForm ? "outline" : "default"}
-                    onClick={() => setShowAddFundsForm(!showAddFundsForm)}
-                  >
-                    {showAddFundsForm ? "Cancel" : "Add Funds"}
-                  </Button>
-                  <Button variant="outline">Withdraw</Button>
+                  {!showStripeForm && !showWithdrawForm && (
+                    <>
+                      <Button
+                        variant={showAddFundsForm ? "outline" : "default"}
+                        onClick={() => {
+                          setShowAddFundsForm(!showAddFundsForm)
+                          setShowWithdrawForm(false)
+                        }}
+                      >
+                        {showAddFundsForm ? "Cancel" : "Add Funds"}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          setShowWithdrawForm(!showWithdrawForm)
+                          setShowAddFundsForm(false)
+                        }}
+                      >
+                        {showWithdrawForm ? "Cancel" : "Withdraw"}
+                      </Button>
+                    </>
+                  )}
                 </div>
               </div>
 
-              {showAddFundsForm && (
+              {showStripeForm && (
+                <StripePaymentForm
+                  amount={Number.parseFloat(fundAmount)}
+                  onSuccess={handleStripeSuccess}
+                  onCancel={() => setShowStripeForm(false)}
+                />
+              )}
+
+              {showWithdrawForm && (
+                <WithdrawForm
+                  walletBalance={user?.walletBalance || 0}
+                  bankAccounts={bankAccounts}
+                  onSuccess={handleWithdrawSuccess}
+                  onCancel={() => setShowWithdrawForm(false)}
+                />
+              )}
+
+              {showAddFundsForm && !showStripeForm && (
                 <Card className="border-dashed">
                   <CardHeader className="pb-3">
                     <CardTitle className="text-lg">Add Funds to Wallet</CardTitle>
@@ -387,6 +493,9 @@ export default function WalletPage() {
                           <div>
                             <p className="font-medium">{transaction.description}</p>
                             <p className="text-sm text-muted-foreground">{formatDate(transaction.createdAt)}</p>
+                            <p className="text-xs text-muted-foreground">
+                              Status: <span className="capitalize">{transaction.status}</span>
+                            </p>
                           </div>
                         </div>
                         <p
@@ -683,4 +792,6 @@ export default function WalletPage() {
     </DashboardShell>
   )
 }
+
+
 

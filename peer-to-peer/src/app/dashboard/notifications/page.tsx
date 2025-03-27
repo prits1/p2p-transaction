@@ -61,7 +61,11 @@ export default function NotificationsPage() {
 
   async function handleDeleteNotification(id: string) {
     try {
-      await deleteNotification(id)
+      const result = await deleteNotification(id)
+      if (result.error) {
+        setError(result.error)
+        return
+      }
       setNotifications((prev) => prev.filter((n) => n._id !== id))
     } catch (err: any) {
       setError(err.message || "Failed to delete notification")
@@ -141,7 +145,7 @@ export default function NotificationsPage() {
                     </div>
                     <p className="text-sm text-muted-foreground">{notification.message}</p>
                     {getRelatedLink(notification) ? (
-                      <Link href={getRelatedLink(notification) as string} className="text-sm text-primary hover:underline">
+                      <Link href={getRelatedLink(notification)!} className="text-sm text-primary hover:underline">
                         View details
                       </Link>
                     ) : null}
@@ -177,4 +181,10 @@ export default function NotificationsPage() {
     </DashboardShell>
   )
 }
+
+
+
+
+
+
 
