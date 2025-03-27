@@ -29,7 +29,11 @@ export async function createNotification({
   try {
     const usersCollection = await getCollection("users")
 
+    // Generate a new ObjectId for the notification
+    const notificationId = new ObjectId()
+
     const notification: Notification = {
+      _id: notificationId,
       userId: new ObjectId(userId),
       title,
       message,
@@ -40,7 +44,11 @@ export async function createNotification({
     }
 
     // Add notification to user document
-    await usersCollection.updateOne({ _id: new ObjectId(userId) }, { push: { notifications: notification } })
+    await usersCollection.updateOne({ _id: new ObjectId(userId) }, {
+      $push: {
+        notifications: notification,
+      },
+    } as any)
 
     logger.info("Notification created", { userId, title })
     return { success: true }
@@ -147,10 +155,18 @@ export async function deleteNotification(notificationId: string) {
   try {
     const usersCollection = await getCollection("users")
 
-    await usersCollection.updateOne(
-      { _id: new ObjectId(currentUser.userId) },
-      { pull: { notifications: { _id: new ObjectId(notificationId) } } },
-    )
+    // Make sure we're using the correct ObjectId for the query
+    const result = await usersCollection.updateOne({ _id: new ObjectId(currentUser.userId) }, {
+      $pull: {
+        notifications: { _id: new ObjectId(notificationId) },
+      },
+    } as any)
+
+    if (result.modifiedCount === 0) {
+      logger.warn("No notification was deleted", { userId: currentUser.userId, notificationId })
+    } else {
+      logger.info("Notification deleted", { userId: currentUser.userId, notificationId })
+    }
 
     revalidatePath("/dashboard/notifications")
     return { success: true }

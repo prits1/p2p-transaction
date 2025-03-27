@@ -29,6 +29,10 @@ export async function createPaymentIntent(amount: number, currency = "usd") {
       currency,
       metadata: {
         userId: currentUser.userId,
+        purpose: "wallet_funding",
+      },
+      automatic_payment_methods: {
+        enabled: true,
       },
     })
 
@@ -37,9 +41,9 @@ export async function createPaymentIntent(amount: number, currency = "usd") {
       clientSecret: paymentIntent.client_secret,
       paymentIntentId: paymentIntent.id,
     }
-  } catch (error) {
-    console.error("Create payment intent error:", error)
-    return { error: "Failed to create payment intent" }
+  }  catch (error: any) {
+    logger.error("Create payment intent error:", error)
+    return { error: error.message || "Failed to create payment intent" }
   }
 }
 
@@ -67,8 +71,6 @@ export async function createEscrow(amount: number, paymentIntentId: string) {
 }
 
 export async function releaseEscrow(escrowId: string) {
-  // In a real application, this would release funds from your escrow system
-  // For this example, we'll  {
   // In a real application, this would release funds from your escrow system
   // For this example, we'll just return success
   return {
@@ -126,6 +128,7 @@ export async function addBankAccount(formData: FormData) {
       accountType,
       accountName,
       accountNumber: `****${lastFourDigits}`,
+      routingNumber: `****${routingNumber.slice(-4)}`,
       isDefault,
       createdAt: new Date(),
     }
@@ -169,9 +172,24 @@ export async function getBankAccounts() {
       return { error: "User not found" }
     }
 
+    interface BankAccountResponse {
+      _id: string;
+      userId: string;
+      accountType: string;
+      accountName: string;
+      accountNumber: string;
+      isDefault: boolean;
+      createdAt: Date;
+    }
+
     return {
       success: true,
-      bankAccounts: user.bankAccounts || [],
+      bankAccounts:
+      user.bankAccounts?.map((account: BankAccount): BankAccountResponse => ({
+        ...account,
+        _id: account._id.toString(),
+        userId: account.userId.toString(),
+      })) || [],
     }
   } catch (error) {
     console.error("Get bank accounts error:", error)
@@ -195,9 +213,6 @@ export async function addFundsToWallet(amount: number, paymentMethod: string, so
     const db = client.db()
     const usersCollection = db.collection("users")
     const transactionsCollection = db.collection("wallet_transactions")
-
-    // In a real application, you would process the payment through Stripe or another payment processor
-    // For this demo, we'll just add the funds directly to the wallet
 
     // Update user's wallet balance
     await usersCollection.updateOne({ _id: new ObjectId(currentUser.userId) }, { $inc: { walletBalance: amount } })
@@ -239,6 +254,97 @@ export async function addFundsToWallet(amount: number, paymentMethod: string, so
   } catch (error: any) {
     logger.error("Add funds to wallet error:", error)
     return { error: error.message || "Failed to add funds to wallet" }
+  }
+}
+
+export async function withdrawFromWallet(amount: number, withdrawMethod: string, destinationId: string) {
+  const currentUser = await getCurrentUser()
+
+  if (!currentUser) {
+    return { error: "You must be logged in" }
+  }
+
+  if (amount <= 0) {
+    return { error: "Amount must be greater than zero" }
+  }
+
+  try {
+    const client = await clientPromise
+    const db = client.db()
+    const usersCollection = db.collection("users")
+
+    // Get current user to check balance
+    const user = await usersCollection.findOne({ _id: new ObjectId(currentUser.userId) })
+
+    if (!user) {
+      return { error: "User not found" }
+    }
+
+    if (user.walletBalance < amount) {
+      return { error: "Insufficient funds in wallet" }
+    }
+
+    const transactionsCollection = db.collection("wallet_transactions")
+
+    // Update user's wallet balance
+    await usersCollection.updateOne({ _id: new ObjectId(currentUser.userId) }, { $inc: { walletBalance: -amount } })
+
+    // Create a transaction record
+    const transaction = {
+      userId: new ObjectId(currentUser.userId),
+      amount,
+      type: "withdrawal",
+      method: withdrawMethod,
+      destinationId: destinationId,
+      status: "processing", // Initially set as processing
+      description: `Withdrawal to ${withdrawMethod}`,
+      createdAt: new Date(),
+    }
+
+    const result = await transactionsCollection.insertOne(transaction)
+
+    // In a real application, you would initiate a transfer to the user's bank account
+    // For this demo, we'll simulate a processing period and then mark it as completed
+
+    // Create a withdrawal request record
+    const withdrawalsCollection = db.collection("withdrawal_requests")
+    await withdrawalsCollection.insertOne({
+      userId: new ObjectId(currentUser.userId),
+      transactionId: result.insertedId,
+      amount,
+      method: withdrawMethod,
+      destinationId,
+      status: "processing",
+      createdAt: new Date(),
+    })
+
+    // Create notification
+    await createNotification({
+      userId: currentUser.userId,
+      title: "Withdrawal Initiated",
+      message: `Your withdrawal of $${amount.toFixed(2)} has been initiated and is being processed.`,
+      type: "info",
+      relatedTo: {
+        type: "transaction",
+        id: result.insertedId.toString(),
+      },
+    })
+
+    logger.info("Withdrawal initiated", {
+      userId: currentUser.userId,
+      amount,
+      method: withdrawMethod,
+      transactionId: result.insertedId.toString(),
+    })
+
+    revalidatePath("/dashboard/wallet")
+    return {
+      success: true,
+      message: "Withdrawal initiated and is being processed. This typically takes 1-3 business days.",
+    }
+  } catch (error: any) {
+    logger.error("Withdraw from wallet error:", error)
+    return { error: error.message || "Failed to process withdrawal" }
   }
 }
 
@@ -286,10 +392,10 @@ interface CreditCard {
   isDefault: boolean
   createdAt: Date
 }
-interface User {
-  _id: ObjectId;
-  creditCards: CreditCard[];
-}
+// interface User {
+//   _id: ObjectId;
+//   creditCards: CreditCard[];
+// }
 
 export async function addCreditCard(formData: FormData) {
   const currentUser = await getCurrentUser()
@@ -310,29 +416,38 @@ export async function addCreditCard(formData: FormData) {
   }
 
   try {
+     // In a real application, you would use Stripe to create a payment method
+    // For this demo, we'll create a payment method with Stripe
+    const paymentMethod = await stripe.paymentMethods.create({
+      type: "card",
+      card: {
+        number: cardNumber,
+        exp_month: Number.parseInt(expMonth),
+        exp_year: Number.parseInt(expYear),
+        cvc: cvc,
+      },
+      billing_details: {
+        name: cardholderName,
+      },
+    })
+     // Attach the payment method to the customer
+    // In a real app, you'd create a Stripe customer for each user
+    // For this demo, we'll just store the payment method ID
+
     const client = await clientPromise
     const db = client.db()
     const usersCollection: Collection<User> = db.collection("users")
 
-    // In a real application, you would use Stripe to create a payment method
-    // For this demo, we'll just store the card details (securely in a real app)
-
     // Store only last 4 digits for security
     const last4 = cardNumber.slice(-4)
 
-    // Determine card brand based on first digit
-    let brand = "unknown"
-    const firstDigit = cardNumber.charAt(0)
-    if (firstDigit === "4") brand = "visa"
-    else if (firstDigit === "5") brand = "mastercard"
-    else if (firstDigit === "3") brand = "amex"
-    else if (firstDigit === "6") brand = "discover"
-
+    const brand = paymentMethod.card?.brand || "unknown"
     // Create credit card object
 
     const creditCard = {
       _id: new ObjectId(),
       userId: new ObjectId(currentUser.userId),
+      paymentMethodId: paymentMethod.id,
       last4,
       brand,
       expMonth,
@@ -357,7 +472,12 @@ export async function addCreditCard(formData: FormData) {
     return { success: true }
   } catch (error: any) {
     logger.error("Add credit card error:", error)
-    return { error: error.message || "Failed to add credit card" }
+    // Handle Stripe-specific errors
+    if (error.type === "StripeCardError") {
+      return { error: error.message || "Your card was declined" }
+    }
+
+    return { error: "Failed to add credit card. Please check your card details and try again." }
   }
 }
 
@@ -379,13 +499,95 @@ export async function getCreditCards() {
       return { error: "User not found" }
     }
 
+    interface CreditCardResponse {
+      _id: string;
+      userId: string;
+      last4: string;
+      brand: string;
+      expMonth: string;
+      expYear: string;
+      cardholderName: string;
+      isDefault: boolean;
+      createdAt: Date;
+    }
+
     return {
       success: true,
-      cards: user.creditCards || [],
+      cards:
+      user.creditCards?.map((card: CreditCard): CreditCardResponse => ({
+        ...card,
+        _id: card._id.toString(),
+        userId: card.userId.toString(),
+      })) || [],
     }
   } catch (error: any) {
     logger.error("Get credit cards error:", error)
     return { error: error.message || "Failed to fetch credit cards" }
+  }
+}
+
+export async function processStripePayment(paymentIntentId: string) {
+  const currentUser = await getCurrentUser()
+
+  if (!currentUser) {
+    return { error: "You must be logged in" }
+  }
+
+  try {
+    // Retrieve the payment intent to verify it's successful
+    const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId)
+
+    if (paymentIntent.status !== "succeeded") {
+      return { error: "Payment has not been completed" }
+    }
+
+    // Verify this payment is for wallet funding and belongs to this user
+    if (paymentIntent.metadata.purpose !== "wallet_funding" || paymentIntent.metadata.userId !== currentUser.userId) {
+      return { error: "Invalid payment intent" }
+    }
+
+    // Get the amount from the payment intent (in cents)
+    const amountInCents = paymentIntent.amount
+    const amount = amountInCents / 100 // Convert to dollars
+
+    // Add funds to wallet
+    return await addFundsToWallet(amount, "card", paymentIntent.payment_method as string)
+  } catch (error: any) {
+    logger.error("Process Stripe payment error:", error)
+    return { error: error.message || "Failed to process payment" }
+  }
+}
+
+export async function getWithdrawalRequests() {
+  const currentUser = await getCurrentUser()
+
+  if (!currentUser) {
+    return { error: "You must be logged in" }
+  }
+
+  try {
+    const client = await clientPromise
+    const db = client.db()
+    const withdrawalsCollection = db.collection("withdrawal_requests")
+
+    // Get all withdrawal requests for this user
+    const withdrawals = await withdrawalsCollection
+      .find({ userId: new ObjectId(currentUser.userId) })
+      .sort({ createdAt: -1 })
+      .toArray()
+
+    return {
+      success: true,
+      withdrawals: withdrawals.map((w) => ({
+        ...w,
+        _id: w._id.toString(),
+        userId: w.userId.toString(),
+        transactionId: w.transactionId.toString(),
+      })),
+    }
+  } catch (error: any) {
+    logger.error("Get withdrawal requests error:", error)
+    return { error: error.message || "Failed to fetch withdrawal requests" }
   }
 }
 
