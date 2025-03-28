@@ -5,8 +5,8 @@ import * as jose from "jose"
 export async function middleware(request: NextRequest) {
   const path = request.nextUrl.pathname
 
-  // Only apply to dashboard routes
-  if (!path.startsWith("/dashboard")) {
+  // Only apply to dashboard routes, allow reset-password routes to pass through
+  if (!path.startsWith("/dashboard") || path.startsWith("/reset-password")) {
     return NextResponse.next()
   }
 
@@ -39,6 +39,7 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/dashboard/:path*"],
+  matcher: ["/dashboard/:path*", "/reset-password/:path*"],
 }
+
 
