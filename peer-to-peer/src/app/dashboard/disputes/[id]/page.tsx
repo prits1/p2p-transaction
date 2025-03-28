@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback,useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { AlertTriangle, ArrowLeft, CheckCircle, Clock, MessageSquare, ShieldAlert } from "lucide-react"
@@ -16,7 +16,14 @@ import { DashboardShell } from "@/components/dashboard-shell"
 import { getDisputeById, respondToDispute } from "@/lib/actions/dispute-actions"
 import { getCurrentUser } from "@/lib/actions/auth-actions"
 
-export default function DisputeDetailsPage({ params }: { params: { id: string } }) {
+
+interface DisputeDetailsPageProps {
+  params: {
+    id: string;
+  };
+}
+
+export default function DisputeDetailsPage({ params: { id } }: DisputeDetailsPageProps) {
   const router = useRouter()
   const [dispute, setDispute] = useState<any>(null)
   const [loading, setLoading] = useState(true)
@@ -25,53 +32,44 @@ export default function DisputeDetailsPage({ params }: { params: { id: string } 
   const [submitting, setSubmitting] = useState(false)
   const [currentUser, setCurrentUser] = useState<any>(null)
 
-  useEffect(() => {
-    async function loadData() {
-      setLoading(true)
-      try {
-        const userData = await getCurrentUser()
-        if (userData) {
-          setCurrentUser(userData)
-        }
-
-        const result = await getDisputeById(params.id)
-        if (result.success) {
-          setDispute(result.dispute)
-        } else {
-          setError(result.error || "Failed to load dispute")
-        }
-      } catch (err: any) {
-        setError(err.message || "An unexpected error occurred")
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    loadData()
-  }, [params.id])
-
-  async function handleSubmitResponse() {
-    if (!responseText.trim()) return
-
-    setSubmitting(true)
+  const loadData = useCallback(async () => {
+    setLoading(true);
     try {
-      const result = await respondToDispute(params.id, responseText)
+      const userData = await getCurrentUser();
+      setCurrentUser(userData);
+
+      const result = await getDisputeById(id);
       if (result.success) {
-        setResponseText("")
-        // Refresh dispute data
-        const updatedDispute = await getDisputeById(params.id)
-        if (updatedDispute.success) {
-          setDispute(updatedDispute.dispute)
-        }
+        setDispute(result.dispute);
       } else {
-        setError(result.error || "Failed to submit response")
+        throw new Error(result.error || "Failed to load dispute");
       }
-    } catch (err: any) {
-      setError(err.message || "An unexpected error occurred")
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "An unknown error occurred");
     } finally {
-      setSubmitting(false)
+      setLoading(false);
     }
-  }
+  }, [id]);
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+
+  const handleSubmitResponse = async () => {
+    if (!responseText.trim()) return;
+
+    setSubmitting(true);
+    try {
+      const result = await respondToDispute(id, responseText);
+      if (!result.success) throw new Error(result.error || "Failed to submit response");
+      setResponseText("");
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "An unknown error occurred");
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const getStatusBadge = (status: string) => {
     switch (status) {
