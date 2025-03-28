@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback,useEffect, useState } from "react"
-import { useRouter } from "next/navigation"
+import { useRouter, useParams} from "next/navigation"
 import Link from "next/link"
 import { AlertTriangle, ArrowLeft, CheckCircle, Clock, MessageSquare, ShieldAlert } from "lucide-react"
 
@@ -16,23 +16,22 @@ import { DashboardShell } from "@/components/dashboard-shell"
 import { getDisputeById, respondToDispute } from "@/lib/actions/dispute-actions"
 import { getCurrentUser } from "@/lib/actions/auth-actions"
 
+export default function DisputeDetailsPage() {
+  const router = useRouter();
+  const params = useParams();
+  const id = params?.id as string; // ✅ Ensure `id` is treated as a string
 
-interface DisputeDetailsPageProps {
-  params: {
-    id: string;
-  };
-}
+  const [dispute, setDispute] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [responseText, setResponseText] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [currentUser, setCurrentUser] = useState<any>(null);
 
-export default function DisputeDetailsPage({ params: { id } }: DisputeDetailsPageProps) {
-  const router = useRouter()
-  const [dispute, setDispute] = useState<any>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [responseText, setResponseText] = useState("")
-  const [submitting, setSubmitting] = useState(false)
-  const [currentUser, setCurrentUser] = useState<any>(null)
-
+  // ✅ Fetch dispute details
   const loadData = useCallback(async () => {
+    if (!id) return; // Prevent API calls if id is empty
+
     setLoading(true);
     try {
       const userData = await getCurrentUser();
@@ -50,26 +49,31 @@ export default function DisputeDetailsPage({ params: { id } }: DisputeDetailsPag
       setLoading(false);
     }
   }, [id]);
+
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    if (id) {
+      loadData();
+    }
+  }, [id, loadData]); // ✅ Only call when id is available
 
-
+  // ✅ Handle response submission
   const handleSubmitResponse = async () => {
-    if (!responseText.trim()) return;
+    if (!responseText.trim() || !id) return;
 
     setSubmitting(true);
     try {
       const result = await respondToDispute(id, responseText);
       if (!result.success) throw new Error(result.error || "Failed to submit response");
+
       setResponseText("");
-      await loadData();
+      await loadData(); // Refresh data after submitting response
     } catch (err) {
       setError(err instanceof Error ? err.message : "An unknown error occurred");
     } finally {
       setSubmitting(false);
     }
   };
+
 
   const getStatusBadge = (status: string) => {
     switch (status) {
